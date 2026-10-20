@@ -86,6 +86,43 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
+// ==========================================
+// RUTA DE REGISTRO DE USUARIOS (NUEVA)
+// ==========================================
+app.post('/api/register', async (req, res) => {
+  const { nombre, usuario, password, rol } = req.body;
+
+  if (!nombre || !usuario || !password) {
+    return res.status(400).json({ success: false, message: 'Todos los campos son obligatorios' });
+  }
+
+  try {
+    // 1. Verificar si el usuario ya existe
+    const [existingUser] = await pool.query('SELECT id FROM usuarios WHERE usuario = ?', [usuario]);
+    if (existingUser.length > 0) {
+      return res.status(400).json({ success: false, message: 'El nombre de usuario ya está registrado' });
+    }
+
+    // 2. Encriptar contraseña de manera segura
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // 3. Guardar en MySQL
+    const userRole = rol || 'cajero';
+    await pool.query(
+      'INSERT INTO usuarios (nombre, usuario, password, rol) VALUES (?, ?, ?, ?)',
+      [nombre, usuario, hashedPassword, userRole]
+    );
+
+    res.json({
+      success: true,
+      message: '¡Cuenta creada con éxito! Ya puedes iniciar sesión.'
+    });
+
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Error al registrar el usuario', details: err.message });
+  }
+});
+
 // Ruta para cerrar sesión
 app.post('/api/logout', (req, res) => {
   req.session.destroy((err) => {
