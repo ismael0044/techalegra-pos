@@ -3,6 +3,7 @@ const mysql = require('mysql2/promise');
 const cors = require('cors');
 const session = require('express-session');
 const bcrypt = require('bcryptjs');
+const path = require('path');
 
 const app = express();
 
@@ -10,8 +11,13 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// 👉 LÍNEA CLAVE: Permite que Express sirva los archivos HTML/CSS/JS de la carpeta del proyecto
-app.use(express.static(__dirname));
+// Archivos estáticos
+app.use(express.static(path.join(__dirname)));
+
+// Ruta explícita para asegurar la carga de login.html
+app.get('/login.html', (req, res) => {
+  res.sendFile(path.join(__dirname, 'login.html'));
+});
 
 // Configuración de Sesiones
 app.use(session({
@@ -25,7 +31,7 @@ app.use(session({
 const pool = mysql.createPool({
   host: 'localhost',
   user: 'root',
-  password: '', // En XAMPP por defecto la contraseña viene vacía
+  password: '', 
   database: 'techalegra_db',
   waitForConnections: true,
   connectionLimit: 10,
@@ -51,7 +57,6 @@ app.post('/api/login', async (req, res) => {
 
     const user = rows[0];
 
-    // Verificar si la contraseña está encriptada (bcrypt) o en texto plano ("1234")
     let passwordMatch = false;
     if (user.password.startsWith('$2a$') || user.password.startsWith('$2b$')) {
       passwordMatch = await bcrypt.compare(password, user.password);
@@ -63,7 +68,6 @@ app.post('/api/login', async (req, res) => {
       return res.status(401).json({ success: false, message: 'Usuario o contraseña incorrectos' });
     }
 
-    // Guardar datos del usuario en la sesión
     req.session.usuario = {
       id: user.id,
       nombre: user.nombre,
@@ -105,7 +109,6 @@ app.get('/api/session', (req, res) => {
 // RUTAS DE PRODUCTOS Y VENTAS
 // ==========================================
 
-// Ruta 1: Obtener todo el inventario desde MySQL
 app.get('/api/productos', async (req, res) => {
   try {
     const [rows] = await pool.query(
@@ -117,7 +120,6 @@ app.get('/api/productos', async (req, res) => {
   }
 });
 
-// Ruta 2: Registrar un producto individual manualmente
 app.post('/api/productos', async (req, res) => {
   const { codigo, nombre, categoria, stock, price, ubicacion, sn } = req.body;
   try {
@@ -132,7 +134,6 @@ app.post('/api/productos', async (req, res) => {
   }
 });
 
-// Ruta 3: Importación masiva desde Excel
 app.post('/api/productos/importar', async (req, res) => {
   const productos = req.body;
   if (!Array.isArray(productos) || productos.length === 0) {
@@ -161,7 +162,6 @@ app.post('/api/productos/importar', async (req, res) => {
   }
 });
 
-// Ruta 4: Registrar Venta POS y descontar stock automáticamente en MySQL
 app.post('/api/ventas', async (req, res) => {
   const { cliente, subtotal, itbis, total, items } = req.body;
   const connection = await pool.getConnection();
@@ -182,7 +182,6 @@ app.post('/api/ventas', async (req, res) => {
         [ventaId, item.id, item.qty, item.price, item.price * item.qty]
       );
 
-      // Descontar inventario en MySQL
       await connection.query(
         `UPDATE productos SET stock = GREATEST(0, stock - ?) WHERE id = ?`,
         [item.qty, item.id]
@@ -199,7 +198,6 @@ app.post('/api/ventas', async (req, res) => {
   }
 });
 
-// Ruta 5: Eliminar un producto de la base de datos MySQL
 app.delete('/api/productos/:id', async (req, res) => {
   const { id } = req.params;
   try {
