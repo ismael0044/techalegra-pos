@@ -1,10 +1,25 @@
 const express = require('express');
 const mysql = require('mysql2/promise');
 const cors = require('cors');
+const session = require('express-session');
+const bcrypt = require('bcryptjs');
 
 const app = express();
+
 app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// 👉 LÍNEA CLAVE: Permite que Express sirva los archivos HTML/CSS/JS de la carpeta del proyecto
+app.use(express.static(__dirname));
+
+// Configuración de Sesiones
+app.use(session({
+  secret: 'clave_secreta_super_segura_techalegra',
+  resave: false,
+  saveUninitialized: false,
+  cookie: { secure: false }
+}));
 
 // Conexión a la base de datos MySQL (XAMPP local)
 const pool = mysql.createPool({
@@ -16,6 +31,79 @@ const pool = mysql.createPool({
   connectionLimit: 10,
   queueLimit: 0
 });
+
+// ==========================================
+// RUTA DE AUTENTICACIÓN (LOGIN)
+// ==========================================
+app.post('/api/login', async (req, res) => {
+  const { usuario, password } = req.body;
+
+  if (!usuario || !password) {
+    return res.status(400).json({ success: false, message: 'Por favor ingresa usuario y contraseña' });
+  }
+
+  try {
+    const [rows] = await pool.query('SELECT * FROM usuarios WHERE usuario = ?', [usuario]);
+
+    if (rows.length === 0) {
+      return res.status(401).json({ success: false, message: 'Usuario o contraseña incorrectos' });
+    }
+
+    const user = rows[0];
+
+    // Verificar si la contraseña está encriptada (bcrypt) o en texto plano ("1234")
+    let passwordMatch = false;
+    if (user.password.startsWith('$2a$') || user.password.startsWith('$2b$')) {
+      passwordMatch = await bcrypt.compare(password, user.password);
+    } else {
+      passwordMatch = (password === user.password);
+    }
+
+    if (!passwordMatch) {
+      return res.status(401).json({ success: false, message: 'Usuario o contraseña incorrectos' });
+    }
+
+    // Guardar datos del usuario en la sesión
+    req.session.usuario = {
+      id: user.id,
+      nombre: user.nombre,
+      usuario: user.usuario,
+      rol: user.rol
+    };
+
+    res.json({
+      success: true,
+      message: '¡Inicio de sesión exitoso!',
+      usuario: req.session.usuario
+    });
+
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Error en el servidor al iniciar sesión', details: err.message });
+  }
+});
+
+// Ruta para cerrar sesión
+app.post('/api/logout', (req, res) => {
+  req.session.destroy((err) => {
+    if (err) {
+      return res.status(500).json({ success: false, message: 'Error al cerrar sesión' });
+    }
+    res.json({ success: true, message: 'Sesión cerrada correctamente' });
+  });
+});
+
+// Ruta para verificar si hay una sesión activa
+app.get('/api/session', (req, res) => {
+  if (req.session && req.session.usuario) {
+    res.json({ loggedIn: true, usuario: req.session.usuario });
+  } else {
+    res.json({ loggedIn: false });
+  }
+});
+
+// ==========================================
+// RUTAS DE PRODUCTOS Y VENTAS
+// ==========================================
 
 // Ruta 1: Obtener todo el inventario desde MySQL
 app.get('/api/productos', async (req, res) => {
